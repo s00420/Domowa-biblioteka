@@ -147,7 +147,7 @@ if filtered_books:
     col1, col2 = st.columns(2)
 
     if selected_label != "(brak)":
-        if col1.button("\ud83d\udcc4 Wygeneruj streszczenie"):
+        if col1.button("📄 Wygeneruj streszczenie"):
             title_for_summary = selected_label.split("-")[0].strip()
             response = client.chat.completions.create(
                 model="gpt-4o",
@@ -164,7 +164,7 @@ if filtered_books:
                 unsafe_allow_html=True
             )
 
-        if col2.button("\ud83d\uddd1\ufe0f Usuń książkę"):
+        if col2.button("🗑️ Usuń książkę"):
             delete_book_from_shelf(user_email, selected_label)
             st.success("Książka została usunięta z półki.")
             time.sleep(2)
@@ -181,7 +181,7 @@ if uploaded_file:
     st.sidebar.image(uploaded_file, caption="Załadowane zdjęcie", use_container_width=True)
     file_bytes = uploaded_file.read()
 
-    if st.sidebar.button("\ud83d\udd0d Rozpoznaj książki"):
+    if st.sidebar.button("🔍 Rozpoznaj książki"):
         base64_image = base64.b64encode(file_bytes).decode("utf-8")
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -243,7 +243,7 @@ if recognized_books:
         default=[], key="book_select_labels"
     )
     selected_books = [book for book in recognized_books if book["label"] in selected_labels]
-    if st.sidebar.button("\u2705 Dodaj wybrane książki"):
+    if st.sidebar.button("✅ Dodaj wybrane książki"):
         existing = load_user_books(user_email)
         existing_labels = {b["label"] for b in existing}
         new_books = [b for b in selected_books if b["label"] not in existing_labels]
@@ -266,7 +266,7 @@ with manual_form:
     title = st.text_input("Tytuł")
     author = st.text_input("Autor")
     year = st.text_input("Rok wydania")
-    submitted = st.form_submit_button("\u2795 Dodaj książkę")
+    submitted = st.form_submit_button("➕ Dodaj książkę")
     if submitted:
         if title and author and year:
             new_book = {
