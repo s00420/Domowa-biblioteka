@@ -194,7 +194,7 @@ if uploaded_file:
                             "text": (
                                 "Na podstawie tekstu widocznego na zdjęciu rozpoznaj tytuły książek oraz ich autorów. "
                                 "Wszystkie tytuły są w języku polskim. "
-                                "Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek. "
+                                "Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek, w układzie pionowym i poziomym. "
                                 "Wypisz listę w formacie: Tytuł - Autor. Jeśli autor jest nieczytelny, zostaw puste. "
                                 "Każdą pozycję wypisz w nowej linii."
                             )
