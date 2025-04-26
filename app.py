@@ -10,7 +10,7 @@ from authlib.integrations.requests_client import OAuth2Session
 from urllib.parse import urlencode
 
 # --- Konfiguracja klienta OpenAI ---
-client = openai.OpenAI(api_key=st.secrets["openai_api_key"])
+client = openai.OpenAI(api_key=os.environ["openai_api_key"])
 
 st.set_page_config(page_title="Domowa Biblioteka", layout="wide")
 
