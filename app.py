@@ -192,10 +192,11 @@ if uploaded_file:
                         {
                             "type": "text",
                             "text": (
-                                "Na podstawie tekstu widocznego na zdjęciu rozpoznaj tytuły książek oraz ich autorów. "
-                                "Wszystkie tytuły są w języku polskim. "
-                                "Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek, w układzie pionowym i poziomym. "
-                                "Wypisz listę w formacie: Tytuł - Autor. Jeśli autor jest nieczytelny, zostaw puste. "
+                                """Na podstawie tekstu widocznego na zdjęciu rozpoznaj tytuły książek oraz ich autorów.
+                                Przede wszystkim rozpoznaj tytuły w języku polskim. 
+                                Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek.
+                                Książek może być więcej niż jedna a grzbiety mogą być w układzie zarówno pionowym jak i poziomym"""
+                                "Wypisz listę w formacie: Tytuł - Autor. Jeśli autor jest nieczytelny, zostaw puste."
                                 "Każdą pozycję wypisz w nowej linii."
                             )
                         },
