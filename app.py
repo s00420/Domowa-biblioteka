@@ -78,82 +78,30 @@ if "user_email" not in st.session_state:
         st.rerun()
     else:
         auth_url = get_google_auth_url()
-        st.markdown(f"[Kliknij tutaj, aby się zalogować przez Google]({auth_url})")
+        if st.button("🔒 Zaloguj się przez Google"):
+            st.query_params.clear()
+            st.markdown(f"<meta http-equiv='refresh' content='0; url={auth_url}'>", unsafe_allow_html=True)
+            st.stop()
         st.stop()
 
 user_email = st.session_state.user_email
 st.sidebar.success(f"Zalogowano jako: {user_email}")
 
+# --- Główna aplikacja po zalogowaniu ---
 
-# --- Wydobywanie tytułów książek z obrazu ---
-@st.cache_data(show_spinner=False)
-def extract_text_lines_from_image(file_bytes):
-    base64_image = base64.b64encode(file_bytes).decode("utf-8")
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            "Na podstawie tekstu widocznego na zdjęciu rozpoznaj tytuły książek oraz ich autorów. "
-                            "Wszystkie tytuły są w języku polskim"
-                            "Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek, ułożone poziomo lub pionowo"
-                            "Wypisz listę w formacie: Tytuł - Autor. Jeśli autor jest nieczytelny, zostaw puste. "
-                            "Każdą pozycję wypisz w nowej linii. Nie dodawaj żadnych komentarzy, tylko listę."
-                        )
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    }
-                ]
-            }
-        ],
-        max_tokens=5000
-    )
-    lines_raw = response.choices[0].message.content
-    return [line.strip() for line in lines_raw.split("\n") if line.strip()]
+st.title("📚 Domowa Biblioteka")
 
-# --- Pobieranie danych książki z Open Library ---
+st.header("Moja półka")
+
+# Funkcje pomocnicze
 @st.cache_data
-def fetch_book_data(query):
-    url = f"https://openlibrary.org/search.json?q={requests.utils.quote(query)}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        docs = response.json().get("docs", [])
-        if docs:
-            book = docs[0]
-            title = book.get("title", "")
-            author = ", ".join(book.get("author_name", ["nieznany"]))
-            year = book.get("first_publish_year", "brak danych")
-            subject = ", ".join(book.get("subject", [])[:1]) if book.get("subject") else "brak danych"
-            return {
-                "title": title,
-                "author": author,
-                "year": year,
-                "label": f"{title} - {author} ({year})"
-            }
-    return None
+def load_user_books(user_email):
+    user_file = f"user_shelves/{user_email.replace('@', '_at_')}.json"
+    if os.path.exists(user_file):
+        with open(user_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
 
-# --- Streszczenie książki przez GPT ---
-@st.cache_data(show_spinner=False)
-def summarize_book(title):
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "Napisz krótkie streszczenie książki w maksymalnie 5 zdaniach."},
-            {"role": "user", "content": f"Stwórz streszczenie książki '{title}'."}
-        ],
-        max_tokens=300
-    )
-    return response.choices[0].message.content
-
-# --- Operacje na półce użytkownika ---
 def save_user_books(user_email, books):
     os.makedirs("user_shelves", exist_ok=True)
     user_file = f"user_shelves/{user_email.replace('@', '_at_')}.json"
@@ -167,13 +115,6 @@ def save_user_books(user_email, books):
         with open(user_file, "w", encoding="utf-8") as f:
             json.dump(existing_books + new_books, f, ensure_ascii=False, indent=2)
 
-def load_user_books(user_email):
-    user_file = f"user_shelves/{user_email.replace('@', '_at_')}.json"
-    if os.path.exists(user_file):
-        with open(user_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
 def delete_book_from_shelf(user_email, label_to_delete):
     user_file = f"user_shelves/{user_email.replace('@', '_at_')}.json"
     if os.path.exists(user_file):
@@ -183,11 +124,6 @@ def delete_book_from_shelf(user_email, label_to_delete):
         with open(user_file, "w", encoding="utf-8") as f:
             json.dump(updated_books, f, ensure_ascii=False, indent=2)
 
-# --- UI: półka użytkownika ---
-st.title("📚 Domowa Biblioteka")
-user_email = st.session_state.user_email
-
-st.header("Moja półka")
 user_books = load_user_books(user_email)
 
 available_authors = sorted(set(b["author"] for b in user_books))
@@ -211,26 +147,32 @@ if filtered_books:
     col1, col2 = st.columns(2)
 
     if selected_label != "(brak)":
-        if col1.button("📄 Wygeneruj streszczenie"):
+        if col1.button("\ud83d\udcc4 Wygeneruj streszczenie"):
             title_for_summary = selected_label.split("-")[0].strip()
-            summary = summarize_book(title_for_summary)
-
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Napisz krótkie streszczenie książki w maksymalnie 5 zdaniach."},
+                    {"role": "user", "content": f"Stwórz streszczenie książki '{title_for_summary}'."}
+                ],
+                max_tokens=300
+            )
+            summary = response.choices[0].message.content
             st.success("Streszczenie:")
             st.markdown(
                 f"<div style='padding: 1rem; font-size: 1.1rem; border-radius: 8px;'>{summary}</div>",
                 unsafe_allow_html=True
             )
 
-        if col2.button("🗑️ Usuń książkę"):
+        if col2.button("\ud83d\uddd1\ufe0f Usuń książkę"):
             delete_book_from_shelf(user_email, selected_label)
             st.success("Książka została usunięta z półki.")
             time.sleep(2)
             st.rerun()
 else:
     st.info("Brak książek spełniających kryteria.")
-    time.sleep(2)
 
-# --- Rozpoznawanie książek ze zdjęcia ---
+# --- Upload i rozpoznawanie książek ze zdjęcia ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Rozpoznaj książki ze zdjęcia")
 
@@ -239,24 +181,59 @@ if uploaded_file:
     st.sidebar.image(uploaded_file, caption="Załadowane zdjęcie", use_container_width=True)
     file_bytes = uploaded_file.read()
 
-    if st.sidebar.button("🔍 Rozpoznaj książki"):
-        with st.spinner("Wydobywam tekst i szukam książek..."):
-            lines = extract_text_lines_from_image(file_bytes)
-            enriched = []
-            for line in lines:
-                if "–" in line:
-                    title, author = map(str.strip, line.split("–", 1))
-                    query = f"{title} {author}"
-                else:
-                    title = line.strip()
-                    query = title
-                result = fetch_book_data(query)
-                if result:
-                    enriched.append(result)
-            if enriched:
-                st.session_state["recognized_books"] = enriched
+    if st.sidebar.button("\ud83d\udd0d Rozpoznaj książki"):
+        base64_image = base64.b64encode(file_bytes).decode("utf-8")
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Na podstawie tekstu widocznego na zdjęciu rozpoznaj tytuły książek oraz ich autorów. "
+                                "Wszystkie tytuły są w języku polskim. "
+                                "Na zdjęciu mogą być okładki, ale większość stanowią grzbiety książek. "
+                                "Wypisz listę w formacie: Tytuł - Autor. Jeśli autor jest nieczytelny, zostaw puste. "
+                                "Każdą pozycję wypisz w nowej linii."
+                            )
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        }
+                    ]
+                }
+            ],
+            max_tokens=5000
+        )
+        lines_raw = response.choices[0].message.content
+        lines = [line.strip() for line in lines_raw.split("\n") if line.strip()]
+        enriched = []
+        for line in lines:
+            if "-" in line:
+                title, author = map(str.strip, line.split("-", 1))
+                query = f"{title} {author}"
             else:
-                st.session_state["recognized_books"] = []
+                title = line.strip()
+                query = title
+            url = f"https://openlibrary.org/search.json?q={requests.utils.quote(query)}"
+            result = requests.get(url)
+            if result.status_code == 200:
+                docs = result.json().get("docs", [])
+                if docs:
+                    book = docs[0]
+                    enriched.append({
+                        "title": book.get("title", ""),
+                        "author": ", ".join(book.get("author_name", ["nieznany"])),
+                        "year": book.get("first_publish_year", "brak danych"),
+                        "label": f"{book.get('title', '')} - {', '.join(book.get('author_name', ['nieznany']))} ({book.get('first_publish_year', 'brak danych')})"
+                    })
+        if enriched:
+            st.session_state["recognized_books"] = enriched
+        else:
+            st.session_state["recognized_books"] = []
 
 recognized_books = st.session_state.get("recognized_books", [])
 if recognized_books:
@@ -266,7 +243,7 @@ if recognized_books:
         default=[], key="book_select_labels"
     )
     selected_books = [book for book in recognized_books if book["label"] in selected_labels]
-    if st.sidebar.button("✅ Dodaj wybrane książki"):
+    if st.sidebar.button("\u2705 Dodaj wybrane książki"):
         existing = load_user_books(user_email)
         existing_labels = {b["label"] for b in existing}
         new_books = [b for b in selected_books if b["label"] not in existing_labels]
@@ -289,7 +266,7 @@ with manual_form:
     title = st.text_input("Tytuł")
     author = st.text_input("Autor")
     year = st.text_input("Rok wydania")
-    submitted = st.form_submit_button("➕ Dodaj książkę")
+    submitted = st.form_submit_button("\u2795 Dodaj książkę")
     if submitted:
         if title and author and year:
             new_book = {
