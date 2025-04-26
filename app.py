@@ -148,12 +148,22 @@ if filtered_books:
 
     if selected_label != "(brak)":
         if col1.button("📄 Wygeneruj streszczenie"):
-            title_for_summary = selected_label.split("-")[0].strip()
+    # Rozdziel tytuł i autora
+            parts = selected_label.split(" - ")
+            title_for_summary = parts[0].strip()
+            author_for_summary = parts[1].split("(")[0].strip() if len(parts) > 1 else "nieznany"
+
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "Napisz krótkie streszczenie książki w maksymalnie 5 zdaniach."},
-                    {"role": "user", "content": f"Stwórz streszczenie książki '{title_for_summary}'."}
+                    {"role": "system", "content": (
+                        "Twoim zadaniem jest przygotowanie krótkiego streszczenia książki w maksymalnie 5 zdaniach."
+                        "Szukaj w sieci dostępnych informacji, ale jeśli nie znajdziesz wystarczających informacji, napisz: "
+                        "'Nie mam wystarczającej wiedzy o tej książce, aby przygotować streszczenie.'"
+                    )},
+                    {"role": "user", "content": (
+                        f"Stwórz streszczenie książki pod tytułem '{title_for_summary}', napisanej przez '{author_for_summary}'."
+                    )}
                 ],
                 max_tokens=300
             )
