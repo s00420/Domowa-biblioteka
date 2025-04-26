@@ -15,9 +15,9 @@ client = openai.OpenAI(api_key=os.environ["openai_api_key"])
 st.set_page_config(page_title="Domowa Biblioteka", layout="wide")
 
 # --- Logowanie przez Google OAuth ---
-GOOGLE_CLIENT_ID = st.secrets["google_client_id"]
-GOOGLE_CLIENT_SECRET = st.secrets["google_client_secret"]
-REDIRECT_URI = st.secrets["redirect_uri"]
+GOOGLE_CLIENT_ID = os.environ["google_client_id"]
+GOOGLE_CLIENT_SECRET = os.environ["google_client_secret"]
+REDIRECT_URI = os.environ["redirect_uri"]
 
 def get_google_auth_url():
     params = {
