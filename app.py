@@ -298,10 +298,12 @@ def save_user_books(user_email, books):
             with open(user_file, "w", encoding="utf-8") as f:
                 json.dump(updated_books, f, ensure_ascii=False, indent=2)
             st.success(f"Dodano {len(new_books)} nowych książek.")
+            time.sleep(2)
             # Odśwież dane użytkownika
             st.session_state["user_books"] = updated_books
         else:
             st.info("Wszystkie wybrane książki już znajdują się na Twojej półce.")
+            time.sleep(2)
     except Exception as e:
         st.error(f"Błąd podczas zapisywania książek: {str(e)}")
 
