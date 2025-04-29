@@ -3,3 +3,4 @@ openai>=1.58.1
 authlib>=1.5.2
 requests>=2.32.3
 pandas>=2.2.3
+langfuse>=2.60.3
