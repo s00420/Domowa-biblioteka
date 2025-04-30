@@ -9,6 +9,12 @@ import time
 from authlib.integrations.requests_client import OAuth2Session
 from urllib.parse import urlencode
 from langfuse import Langfuse
+from summary_evaluation import SummaryEvaluator
+import tempfile
+from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
+import io
 
 def normalize_text(text):
     """
@@ -166,6 +172,29 @@ def search_book(title, author=None):
         "confidence": 0
     }
 
+# Dodaj na początku pliku, po importach
+class AppState:
+    def __init__(self):
+        self.current_summary = None
+        self.predicted_rating = None
+        self.summary_features = None
+        self.rating_submitted = False
+        self.last_summary_text = None
+        self.last_prediction_time = None
+        self.cache = {}
+
+    def clear_state(self):
+        self.current_summary = None
+        self.predicted_rating = None
+        self.summary_features = None
+        self.rating_submitted = False
+        self.last_summary_text = None
+        self.last_prediction_time = None
+
+# Inicjalizacja stanu aplikacji
+if 'app_state' not in st.session_state:
+    st.session_state.app_state = AppState()
+
 # Inicjalizacja Langfuse z Streamlit secrets
 try:
     lf = Langfuse(
@@ -256,11 +285,46 @@ if "user_email" not in st.session_state:
 user_email = st.session_state.user_email
 st.sidebar.success(f"Zalogowano jako: {user_email}")
 
-# --- Główna aplikacja po zalogowaniu ---
+# --- Funkcje pomocnicze ---
+def load_rating_history():
+    try:
+        # Upewnij się, że ewaluator jest zainicjalizowany
+        evaluator._initialize()
+        
+        # Pobierz listę plików z ocenami
+        ratings_response = evaluator._s3.list_objects_v2(
+            Bucket=evaluator._bucket_name,
+            Prefix='ratings/'
+        )
+        if 'Contents' not in ratings_response:
+            return pd.DataFrame()
+            
+        ratings_files = [obj['Key'] for obj in ratings_response['Contents'] 
+                        if obj['Key'].endswith('.json')]
+        
+        all_ratings = []
+        for file in ratings_files:
+            # Pobierz plik z S3
+            data = evaluator._s3.get_object(Bucket=evaluator._bucket_name, Key=file)
+            content = data['Body'].read().decode('utf-8')
+            rating_data = json.loads(content)
+            all_ratings.append(rating_data)
+        
+        if not all_ratings:
+            return pd.DataFrame()
+            
+        return pd.DataFrame(all_ratings)
+    except Exception as e:
+        print(f"Błąd podczas wczytywania historii ocen: {str(e)}")
+        return pd.DataFrame()
 
+# --- Główna aplikacja po zalogowaniu ---
 st.title("📚 Domowa Biblioteka")
 
 st.header("Moja półka")
+
+# Inicjalizacja ewaluatora
+evaluator = SummaryEvaluator()
 
 # Funkcje pomocnicze
 @st.cache_data
@@ -301,6 +365,7 @@ def save_user_books(user_email, books):
             time.sleep(2)
             # Odśwież dane użytkownika
             st.session_state["user_books"] = updated_books
+            st.rerun()
         else:
             st.info("Wszystkie wybrane książki już znajdują się na Twojej półce.")
             time.sleep(2)
@@ -339,41 +404,141 @@ if filtered_books:
     df_books = pd.DataFrame(filtered_books)
     # Usuń kolumny year i label
     df_books = df_books[["title", "author"]]
-    selected_book = st.selectbox("Wybierz książkę z półki", ["(brak)"] + [f"{b['title']} - {b['author']}" for b in filtered_books])
+    # Zmień nazwy kolumn na polskie
+    df_books.columns = ["Tytuł", "Autor"]
+    # Posortuj po tytule
+    df_books = df_books.sort_values("Tytuł")
+    # Zresetuj indeks, zaczynając od 1
+    df_books.index = range(1, len(df_books) + 1)
+    
+    # Wyświetl tabelę
     st.dataframe(df_books, use_container_width=True)
+    
+    # Lista książek do wyboru
+    book_list = ["(brak)"] + [f"{b['title']} - {b['author']}" for b in filtered_books]
+    
+    # Inicjalizacja stanu dla wyboru książki
+    if "book_selectbox" not in st.session_state:
+        st.session_state.book_selectbox = "(brak)"
+    if "selected_book" not in st.session_state:
+        st.session_state.selected_book = "(brak)"
+    
+    # Funkcja do aktualizacji wybranej książki
+    def update_selected_book():
+        if "book_selectbox" in st.session_state:
+            st.session_state.selected_book = st.session_state.book_selectbox
+    
+    # Selectbox z callbackiem
+    selected_book = st.selectbox(
+        "Wybierz książkę z półki",
+        book_list,
+        key="book_selectbox",
+        on_change=update_selected_book
+    )
 
     col1, col2 = st.columns(2)
 
-    if selected_book != "(brak)":
+    if st.session_state.selected_book != "(brak)":
         if col1.button("📄 Wygeneruj streszczenie"):
             # Rozdziel tytuł i autora
-            parts = selected_book.split(" - ")
+            parts = st.session_state.selected_book.split(" - ")
             title_for_summary = parts[0].strip()
             author_for_summary = parts[1].strip()
 
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": (
-                        "Twoim zadaniem jest przygotowanie krótkiego streszczenia książki w maksymalnie 5 zdaniach."
-                        "Szukaj w sieci dostępnych informacji, ale jeśli nie znajdziesz wystarczających informacji, napisz: "
-                        "'Nie mam wystarczającej wiedzy o tej książce, aby przygotować streszczenie.'"
-                    )},
-                    {"role": "user", "content": (
-                        f"Stwórz streszczenie książki pod tytułem '{title_for_summary}', napisanej przez '{author_for_summary}'."
-                    )}
-                ],
-                max_tokens=300
+            # Wyświetl placeholder podczas generowania
+            with st.spinner('Generowanie streszczenia...'):
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": (
+                            "Twoim zadaniem jest przygotowanie krótkiego streszczenia książki w maksymalnie 5 zdaniach."
+                            "Szukaj w sieci dostępnych informacji, ale jeśli nie znajdziesz wystarczających informacji, napisz: "
+                            "'Nie mam wystarczającej wiedzy o tej książce, aby przygotować streszczenie.'"
+                        )},
+                        {"role": "user", "content": (
+                            f"Stwórz streszczenie książki pod tytułem '{title_for_summary}', napisanej przez '{author_for_summary}'."
+                        )}
+                    ],
+                    max_tokens=300
+                )
+                summary = response.choices[0].message.content
+                st.session_state.app_state.current_summary = summary
+                st.session_state.app_state.predicted_rating = None
+                st.rerun()
+
+        # Wyświetl streszczenie i przewidywanie oceny
+        if st.session_state.app_state.current_summary:
+            st.subheader("Wygenerowane streszczenie")
+            st.write(st.session_state.app_state.current_summary)
+            
+            # Przewidywanie oceny tylko raz, przy pierwszym wyświetleniu streszczenia
+            if st.session_state.app_state.predicted_rating is None and not st.session_state.app_state.rating_submitted:
+                with st.spinner("Przewidywanie oceny..."):
+                    predicted_rating = evaluator.predict_rating(st.session_state.app_state.current_summary)
+                    st.session_state.app_state.predicted_rating = predicted_rating
+                    st.session_state.app_state.last_prediction_time = datetime.now().isoformat()
+            
+            # Wyświetl przewidywanie oceny jeśli jest dostępne
+            if st.session_state.app_state.predicted_rating is not None:
+                st.info(f"Przewidywana ocena: {st.session_state.app_state.predicted_rating:.1f}/5.0")
+            else:
+                st.info("Nie można przewidzieć oceny - brak wystarczającej liczby danych treningowych")
+            
+            # Wybór oceny przez użytkownika
+            st.subheader("Oceń streszczenie")
+            # Użyj session_state do przechowywania oceny użytkownika
+            if 'user_rating' not in st.session_state:
+                st.session_state.user_rating = 3.0
+            
+            # Suwak do zmiany oceny - zmiana nie wywołuje żadnych akcji
+            user_rating = st.slider(
+                "Twoja ocena (1-5)", 
+                1.0, 5.0, 
+                st.session_state.user_rating, 
+                0.5,
+                key="rating_slider",
+                on_change=None  # Wyłączamy reakcję na zmianę
             )
-            summary = response.choices[0].message.content
-            st.success("Streszczenie:")
-            st.markdown(
-                f"<div style='padding: 1rem; font-size: 1.1rem; border-radius: 8px;'>{summary}</div>",
-                unsafe_allow_html=True
-            )
+            
+            # Aktualizuj wartość w session_state tylko gdy użytkownik kliknie przycisk zapisu
+            if st.button("Zapisz streszczenie"):
+                st.session_state.user_rating = user_rating
+                st.session_state.app_state.rating_submitted = True
+                with st.spinner("Zapisywanie streszczenia i oceny..."):
+                    try:
+                        # Pobierz tytuł i autora z wybranej książki
+                        selected_book_parts = st.session_state.selected_book.split(" - ")
+                        book_title = selected_book_parts[0].strip()
+                        book_author = selected_book_parts[1].strip()
+                        
+                        # Generuj unikalny ID dla streszczenia
+                        summary_id = f"summary_{int(time.time())}_{hash(st.session_state.app_state.current_summary) % 10000}"
+                        
+                        # Zapisz streszczenie i ocenę
+                        evaluator.save_summary_and_rating(
+                            summary_id=summary_id,
+                            summary_text=st.session_state.app_state.current_summary,
+                            rating=user_rating,
+                            book_title=book_title,
+                            book_author=book_author
+                        )
+                        
+                        st.success("Streszczenie i ocena zostały zapisane!")
+                        
+                        # Wyczyść stan po zapisaniu
+                        st.session_state.app_state.current_summary = None
+                        st.session_state.app_state.predicted_rating = None
+                        st.session_state.user_rating = 3.0  # Reset oceny użytkownika
+                        
+                        # Odśwież statystyki tylko po zapisaniu nowego streszczenia
+                        st.session_state["stats_updated"] = False
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Błąd podczas zapisywania: {str(e)}")
 
         if col2.button("🗑️ Usuń książkę"):
-            parts = selected_book.split(" - ")
+            parts = st.session_state.selected_book.split(" - ")
             title_to_delete = parts[0].strip()
             author_to_delete = parts[1].strip()
             delete_book_from_shelf(user_email, title_to_delete, author_to_delete)
@@ -565,4 +730,50 @@ with manual_form:
         else:
             st.warning("Tytuł i autor muszą być uzupełnione.")
             time.sleep(2)
+
+# --- Statystyki i historia streszczeń ---
+st.markdown("---")
+st.markdown("### 📊 Statystyki i historia streszczeń")
+
+# Wyświetl statystyki tylko jeśli zostały zaktualizowane
+if not st.session_state.get("stats_updated", False):
+    ratings_df = load_rating_history()
+    if not ratings_df.empty:
+        # Statystyki ogólne
+        avg_rating = ratings_df['rating'].mean()
+        total_ratings = len(ratings_df)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Średnia ocena", f"{avg_rating:.2f}")
+        with col2:
+            st.metric("Liczba ocen", total_ratings)
+        
+        # Wykres rozkładu ocen
+        fig = px.histogram(ratings_df, x='rating', 
+                          title='Rozkład ocen',
+                          labels={'rating': 'Ocena', 'count': 'Liczba ocen'},
+                          nbins=5)
+        fig.update_layout(bargap=0.2)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Trend ocen w czasie
+        ratings_df['timestamp'] = pd.to_datetime(ratings_df['timestamp'])
+        ratings_df = ratings_df.sort_values('timestamp')
+        ratings_df['cumulative_avg'] = ratings_df['rating'].expanding().mean()
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=ratings_df['timestamp'], 
+                                y=ratings_df['cumulative_avg'],
+                                mode='lines+markers',
+                                name='Średnia ocena'))
+        fig.update_layout(title='Trend ocen w czasie',
+                         xaxis_title='Data',
+                         yaxis_title='Średnia ocena')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Oznacz statystyki jako zaktualizowane
+        st.session_state["stats_updated"] = True
+    else:
+        st.info("Brak danych do wyświetlenia statystyk")
             

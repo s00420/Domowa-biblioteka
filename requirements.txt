@@ -4,3 +4,7 @@ authlib>=1.5.2
 requests>=2.32.3
 pandas>=2.2.3
 langfuse>=2.60.3
+boto3>=1.38.5
+scikit-learn>=1.4.2
+sentence-transformers>=4.1.0
+joblib>=1.2.0
